@@ -240,28 +240,66 @@ public class RNNaverMapView extends MapView implements OnMapReadyCallback, Naver
 
     @Override
     public void addFeature(View child, int index) {
-        getMapAsync(e -> {
-            if (child instanceof RNNaverMapFeature) {
-                RNNaverMapFeature<?> annotation = (RNNaverMapFeature<?>) child;
-                annotation.addToMap(this);
-                features.add(index, annotation);
-                int visibility = annotation.getVisibility();
-                annotation.setVisibility(View.INVISIBLE);
-                ViewGroup annotationParent = (ViewGroup) annotation.getParent();
-                if (annotationParent != null) {
-                    annotationParent.removeView(annotation);
-                }
-                // Add to the parent group
-                attacherGroup.addView(annotation);
-                annotation.setVisibility(visibility);
+        // ─────────────────────────────────────────────
+        // 1) 전달된 View 타입 확인
+        // ─────────────────────────────────────────────
+        if (!(child instanceof RNNaverMapFeature)) {
+            return;   // Marker, Path 같은 피처가 아니면 무시
+        }
+        RNNaverMapFeature<?> annotation = (RNNaverMapFeature<?>) child;
+
+        // ─────────────────────────────────────────────
+        // 2) 내부 리스트(features) 먼저 업데이트
+        //    → JS-side와 Native-side가 즉시 동일한 상태가 되도록
+        // ─────────────────────────────────────────────
+        if (index < 0 || index > features.size()) {
+            // 잘못된 인덱스가 들어오면 뒤에 붙인다(예외 예방)
+            features.add(annotation);
+        } else {
+            features.add(index, annotation);
+        }
+
+        // ─────────────────────────────────────────────
+        // 3) 지도 객체 준비 후 실제로 addToMap
+        //    → 이후 과정은 getMapAsync 콜백에서 실행
+        // ─────────────────────────────────────────────
+        getMapAsync(map -> {
+            // 지도 객체가 준비된 시점에 피처를 추가
+            annotation.addToMap(this);
+
+            // 화면에 보이도록 하기 위한 기존 로직 유지
+            int visibility = annotation.getVisibility();
+            annotation.setVisibility(View.INVISIBLE);
+
+            ViewGroup parent = (ViewGroup) annotation.getParent();
+            if (parent != null) {
+                parent.removeView(annotation);
             }
+            attacherGroup.addView(annotation);
+            annotation.setVisibility(visibility);
         });
     }
 
     @Override
     public void removeFeatureAt(int index) {
+        // 1) 인덱스 유효성 검사 ──────────────────────────────
+        if (index < 0 || index >= features.size()) {
+            // 잘못된 요청이면 아무것도 하지 않고 반환
+            return;
+        }
+
+        // 2) 리스트에서 먼저 제거해 JS·Native 동기화 유지 ──
         RNNaverMapFeature<?> feature = features.remove(index);
+        if (feature == null) return;
+
+        // 3) 지도 객체에서 제거  ─────────────────────────────
         feature.removeFromMap();
+
+        // 4) attacherGroup(또는 parent)에서 뷰도 분리 ──────
+        ViewGroup parent = (ViewGroup) feature.getParent();
+        if (parent != null) {
+            parent.removeView(feature);
+        }
     }
 
     @Override
@@ -271,6 +309,10 @@ public class RNNaverMapView extends MapView implements OnMapReadyCallback, Naver
 
     @Override
     public View getFeatureAt(int index) {
+//        return features.get(index);
+        if(index < 0 || index >= features.size()){
+            return null;
+        }
         return features.get(index);
     }
 
